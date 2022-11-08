@@ -4,10 +4,14 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
+	"log"
 	"net/http"
 	"regexp"
 	"strings"
 	"time"
+
+	"github.com/jaanusjaeger/json-validation-service/internal/schema"
 )
 
 var schemaIDMatcher, _ = regexp.Compile("^[\\w-]+$")
@@ -19,8 +23,9 @@ type Conf struct {
 type ActionType string
 
 const (
-	ActionSchema   ActionType = "uploadSchema"
-	ActionValidate            = "validateDocument"
+	ActionUploadSchema   ActionType = "uploadSchema"
+	ActionDownloadSchema            = "downloadSchema"
+	ActionValidate                  = "validateDocument"
 )
 
 type StatusType string
@@ -45,9 +50,9 @@ type Server struct {
 	server http.Server
 }
 
-func New(conf Conf) *Server {
+func New(conf Conf, service *schema.Service) *Server {
 	mux := http.NewServeMux()
-	h := handler{}
+	h := handler{service: service}
 
 	mux.HandleFunc("/schema/", h.schema)
 	// TODO validation endpoint
@@ -72,6 +77,7 @@ func (s *Server) Shutdown(timeout time.Duration) error {
 }
 
 type handler struct {
+	service *schema.Service
 }
 
 func (h *handler) schema(w http.ResponseWriter, r *http.Request) {
@@ -83,7 +89,7 @@ func (h *handler) schema(w http.ResponseWriter, r *http.Request) {
 	schemaID, err := getSchemaID(r.URL.Path, "/schema/")
 	if err != nil {
 		writeJSON(w, http.StatusBadRequest, Response{
-			Action:  ActionSchema,
+			Action:  ActionUploadSchema,
 			ID:      schemaID,
 			Status:  StatusError,
 			Message: err.Error(),
@@ -91,17 +97,65 @@ func (h *handler) schema(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// TODO
-	writeJSON(w, http.StatusOK, Response{
-		Action: ActionSchema,
-		ID:     schemaID,
-		Status: StatusSuccess,
-	})
+	if r.Method == http.MethodPost {
+		body, err := io.ReadAll(r.Body)
+		defer r.Body.Close()
+		if err != nil {
+			writeJSON(w, http.StatusInternalServerError, Response{
+				Action:  ActionUploadSchema,
+				ID:      schemaID,
+				Status:  StatusError,
+				Message: err.Error(),
+			})
+			return
+		}
+		err = h.service.CreateSchema(schemaID, body)
+		if err != nil {
+			writeJSON(w, http.StatusBadRequest, Response{
+				Action:  ActionUploadSchema,
+				ID:      schemaID,
+				Status:  StatusError,
+				Message: err.Error(),
+			})
+			return
+		}
+		writeJSON(w, http.StatusOK, Response{
+			Action: ActionUploadSchema,
+			ID:     schemaID,
+			Status: StatusSuccess,
+		})
+		return
+	}
+
+	sch, err := h.service.GetSchema(schemaID)
+	if err == schema.NotFound {
+		writeJSON(w, http.StatusNotFound, Response{
+			Action:  ActionDownloadSchema,
+			ID:      schemaID,
+			Status:  StatusError,
+			Message: fmt.Errorf("schema not found: %s", schemaID),
+		})
+		return
+	}
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, Response{
+			Action:  ActionDownloadSchema,
+			ID:      schemaID,
+			Status:  StatusError,
+			Message: err.Error(),
+		})
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	if _, err = w.Write(sch); err != nil {
+		log.Println("error while writing JSON response")
+	}
 }
 
 func (h *handler) notFound(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusNotFound, Response{
-		Action:  ActionSchema,
+		Action:  "",
 		ID:      "",
 		Status:  StatusError,
 		Message: fmt.Sprintf("Not found: %s %s", r.Method, r.URL.Path),
@@ -123,6 +177,6 @@ func writeJSON(w http.ResponseWriter, status int, v interface{}) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
 	if err := json.NewEncoder(w).Encode(v); err != nil {
-		fmt.Println("error while writing JSON response")
+		log.Println("error while writing JSON response")
 	}
 }

@@ -4,10 +4,12 @@ import (
 	"encoding/json"
 	"io/ioutil"
 
+	"github.com/jaanusjaeger/json-validation-service/internal/schema"
 	"github.com/jaanusjaeger/json-validation-service/internal/server"
 )
 
 type Conf struct {
+	Schema schema.Conf
 	Server server.Conf
 }
 

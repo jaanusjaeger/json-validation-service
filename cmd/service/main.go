@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/jaanusjaeger/json-validation-service/internal/conf"
+	"github.com/jaanusjaeger/json-validation-service/internal/schema"
 	"github.com/jaanusjaeger/json-validation-service/internal/server"
 )
 
@@ -22,12 +23,18 @@ func main() {
 		os.Exit(1)
 	}
 
+	service, err := schema.NewService(conf.Schema)
+	if err != nil {
+		log.Println("ERROR: creating schema service:", err)
+		os.Exit(1)
+	}
+
 	signalc := make(chan os.Signal, 1)
 	defer close(signalc)
 	signal.Notify(signalc, syscall.SIGINT, syscall.SIGTERM)
 	defer signal.Stop(signalc)
 
-	srv := server.New(conf.Server)
+	srv := server.New(conf.Server, service)
 	srvc := make(chan error, 1)
 	go func() { srvc <- srv.ListenAndServe() }()
 
