@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -36,10 +37,10 @@ const (
 )
 
 type Response struct {
-	Action  ActionType `json:"action"`
-	ID      string     `json:"id"`
+	Action  ActionType `json:"action,omitempty"`
+	ID      string     `json:"id,omitempty"`
 	Status  StatusType `json:"status"`
-	Message any        `json:"message,omitempty"`
+	Message string     `json:"message,omitempty"`
 }
 
 type Error struct {
@@ -55,7 +56,6 @@ func New(conf Conf, service *schema.Service) *Server {
 	h := handler{service: service}
 
 	mux.HandleFunc("/schema/", h.schema)
-	// TODO validation endpoint
 	mux.HandleFunc("/", h.notFound)
 
 	return &Server{
@@ -81,69 +81,52 @@ type handler struct {
 }
 
 func (h *handler) schema(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost && r.Method != http.MethodGet {
-		h.notFound(w, r)
-		return
-	}
-
-	schemaID, err := getSchemaID(r.URL.Path, "/schema/")
-	if err != nil {
-		writeJSON(w, http.StatusBadRequest, Response{
-			Action:  ActionUploadSchema,
-			ID:      schemaID,
-			Status:  StatusError,
-			Message: err.Error(),
-		})
-		return
-	}
-
 	if r.Method == http.MethodPost {
-		body, err := io.ReadAll(r.Body)
-		defer r.Body.Close()
-		if err != nil {
-			writeJSON(w, http.StatusInternalServerError, Response{
-				Action:  ActionUploadSchema,
-				ID:      schemaID,
-				Status:  StatusError,
-				Message: err.Error(),
-			})
-			return
-		}
-		err = h.service.CreateSchema(schemaID, body)
-		if err != nil {
-			writeJSON(w, http.StatusBadRequest, Response{
-				Action:  ActionUploadSchema,
-				ID:      schemaID,
-				Status:  StatusError,
-				Message: err.Error(),
-			})
-			return
-		}
-		writeJSON(w, http.StatusOK, Response{
-			Action: ActionUploadSchema,
-			ID:     schemaID,
-			Status: StatusSuccess,
-		})
+		h.postSchema(w, r)
+		return
+	}
+	if r.Method == http.MethodGet {
+		h.getSchema(w, r)
+		return
+	}
+	h.notFound(w, r)
+}
+
+func (h *handler) postSchema(w http.ResponseWriter, r *http.Request) {
+	schemaID, err := getSchemaID(r.URL.Path)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, ActionUploadSchema, schemaID, err)
+		return
+	}
+
+	body, err := io.ReadAll(r.Body)
+	defer r.Body.Close()
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, ActionUploadSchema, schemaID, err)
+		return
+	}
+	err = h.service.CreateSchema(schemaID, body)
+	if err != nil {
+		writeError(w, errStatus(err), ActionUploadSchema, schemaID, err)
+		return
+	}
+	writeJSON(w, http.StatusCreated, Response{
+		Action: ActionUploadSchema,
+		ID:     schemaID,
+		Status: StatusSuccess,
+	})
+}
+
+func (h *handler) getSchema(w http.ResponseWriter, r *http.Request) {
+	schemaID, err := getSchemaID(r.URL.Path)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, ActionDownloadSchema, schemaID, err)
 		return
 	}
 
 	sch, err := h.service.GetSchema(schemaID)
-	if err == schema.NotFound {
-		writeJSON(w, http.StatusNotFound, Response{
-			Action:  ActionDownloadSchema,
-			ID:      schemaID,
-			Status:  StatusError,
-			Message: fmt.Errorf("schema not found: %s", schemaID),
-		})
-		return
-	}
 	if err != nil {
-		writeJSON(w, http.StatusInternalServerError, Response{
-			Action:  ActionDownloadSchema,
-			ID:      schemaID,
-			Status:  StatusError,
-			Message: err.Error(),
-		})
+		writeError(w, errStatus(err), ActionDownloadSchema, schemaID, err)
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
@@ -155,22 +138,42 @@ func (h *handler) schema(w http.ResponseWriter, r *http.Request) {
 
 func (h *handler) notFound(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusNotFound, Response{
-		Action:  "",
-		ID:      "",
 		Status:  StatusError,
 		Message: fmt.Sprintf("Not found: %s %s", r.Method, r.URL.Path),
 	})
 }
 
-func getSchemaID(urlPath, prefix string) (string, error) {
-	if !strings.HasPrefix(urlPath, prefix) || urlPath == prefix {
+func getSchemaID(urlPath string) (string, error) {
+	parts := strings.SplitN(urlPath, "/", 3)
+	if len(parts) < 3 {
 		return "", fmt.Errorf("schema ID is missing from the URL: %s", urlPath)
 	}
-	schemaID := urlPath[len(prefix):]
+	schemaID := parts[2]
 	if !schemaIDMatcher.MatchString(schemaID) {
 		return schemaID, fmt.Errorf("invalid schema ID format: %s", schemaID)
 	}
 	return schemaID, nil
+}
+
+func errStatus(err error) int {
+	switch {
+	case errors.As(err, &schema.ErrNotFound{}):
+		return http.StatusNotFound
+	case errors.As(err, &schema.ErrExists{}):
+		return http.StatusConflict
+	case errors.As(err, &schema.ErrInvalidFormat{}):
+		return http.StatusBadRequest
+	}
+	return http.StatusInternalServerError
+}
+
+func writeError(w http.ResponseWriter, status int, action ActionType, schemaID string, err error) {
+	writeJSON(w, status, Response{
+		Action:  action,
+		ID:      schemaID,
+		Status:  StatusError,
+		Message: err.Error(),
+	})
 }
 
 func writeJSON(w http.ResponseWriter, status int, v interface{}) {
