@@ -1,6 +1,7 @@
 package schema
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -71,6 +72,66 @@ func (s *Service) GetSchema(id string) ([]byte, error) {
 		return nil, ErrNotFound{}
 	} else {
 		return data, err
+	}
+}
+
+func (s *Service) ValidateJSON(jsonBytes []byte, id string) error {
+	schBytes, err := s.GetSchema(id)
+	if err != nil {
+		return err
+	}
+	name := id + ".json"
+	sch, err := compileSchema(name, schBytes)
+	if err != nil {
+		return err
+	}
+
+	var v interface{}
+	if err := json.Unmarshal(jsonBytes, &v); err != nil {
+		return ErrInvalidFormat{err: err.Error()}
+	}
+
+	cleanNulls(v)
+
+	if err = sch.Validate(v); err != nil {
+		var ve *jsonschema.ValidationError
+		if errors.As(err, &ve) {
+			return ErrInvalidFormat{
+				// Sanitize the error message - remove absolute path information
+				err: strings.Replace(ve.Error(), ve.AbsoluteKeywordLocation, name, -1),
+			}
+		}
+		return err
+	}
+
+	return nil
+}
+
+func cleanNulls(i interface{}) {
+	// According to https://pkg.go.dev/encoding/json@go1.19.2#Unmarshal:
+	// * JSON object is stored in map[string]interface{}
+	// * JSON array is stored in []interface{}
+	switch v := i.(type) {
+	case map[string]interface{}:
+		nils := []string{}
+		for key, value := range v {
+			if value == nil {
+				nils = append(nils, key)
+			} else {
+				cleanNulls(value)
+			}
+		}
+		for _, key := range nils {
+			delete(v, key)
+		}
+	case []interface{}:
+		for _, elem := range v {
+			// Not removing nils from JSON arrays, because that would change the
+			// "structure" (number of elements) of the array.
+			// In case of JSON object, the expected structure (class definition)
+			// is usually known and removing a field value does not change it.
+			cleanNulls(elem)
+		}
 	}
 }
 

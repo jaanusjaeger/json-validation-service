@@ -56,6 +56,7 @@ func New(conf Conf, service *schema.Service) *Server {
 	h := handler{service: service}
 
 	mux.HandleFunc("/schema/", h.schema)
+	mux.HandleFunc("/validate/", h.validate)
 	mux.HandleFunc("/", h.notFound)
 
 	return &Server{
@@ -134,6 +135,36 @@ func (h *handler) getSchema(w http.ResponseWriter, r *http.Request) {
 	if _, err = w.Write(sch); err != nil {
 		log.Println("error while writing JSON response")
 	}
+}
+
+func (h *handler) validate(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		h.notFound(w, r)
+		return
+	}
+
+	schemaID, err := getSchemaID(r.URL.Path)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, ActionValidate, schemaID, err)
+		return
+	}
+
+	body, err := io.ReadAll(r.Body)
+	defer r.Body.Close()
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, ActionValidate, schemaID, err)
+		return
+	}
+
+	if err = h.service.ValidateJSON(body, schemaID); err != nil {
+		writeError(w, errStatus(err), ActionValidate, schemaID, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, Response{
+		Action: ActionValidate,
+		ID:     schemaID,
+		Status: StatusSuccess,
+	})
 }
 
 func (h *handler) notFound(w http.ResponseWriter, r *http.Request) {
