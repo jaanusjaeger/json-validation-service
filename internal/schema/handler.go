@@ -68,6 +68,7 @@ func (h *handler) postSchema(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, ActionUploadSchema, schemaID, err)
 		return
 	}
+	logf("postSchema called, schemaID: %s", schemaID)
 
 	body, err := io.ReadAll(r.Body)
 	defer r.Body.Close()
@@ -93,6 +94,7 @@ func (h *handler) getSchema(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, ActionDownloadSchema, schemaID, err)
 		return
 	}
+	logf("getSchema called, schemaID: %s", schemaID)
 
 	sch, err := h.service.GetSchema(schemaID)
 	if err != nil {
@@ -117,6 +119,7 @@ func (h *handler) validate(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, ActionValidate, schemaID, err)
 		return
 	}
+	logf("validate called, schemaID: %s", schemaID)
 
 	body, err := io.ReadAll(r.Body)
 	defer r.Body.Close()
@@ -138,6 +141,7 @@ func (h *handler) validate(w http.ResponseWriter, r *http.Request) {
 
 func getSchemaID(urlPath string) (string, error) {
 	parts := strings.SplitN(urlPath, "/", 3)
+	logf("getSchemaID: %s, %v", urlPath, parts)
 	if len(parts) < 3 {
 		return "", fmt.Errorf("schema ID is missing from the URL: %s", urlPath)
 	}
@@ -182,4 +186,8 @@ func writeJSON(w http.ResponseWriter, status int, v interface{}) {
 	if err := json.NewEncoder(w).Encode(v); err != nil {
 		log.Println("error while writing JSON response")
 	}
+}
+
+func logf(format string, v ...any) {
+	log.Printf("[HANDLER] %s", fmt.Sprintf(format, v...))
 }
