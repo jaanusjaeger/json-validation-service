@@ -12,6 +12,33 @@ import (
 	"github.com/jaanusjaeger/json-validation-service/internal/storage"
 )
 
+func Test_UnsupportedMethod_Error(t *testing.T) {
+	h := mkHandler()
+	testCases := []struct {
+		method string
+		url    string
+		fun    http.HandlerFunc
+	}{
+		{http.MethodPut, "/schema/schema1", h.schema},
+		{http.MethodPatch, "/schema/schema1", h.schema},
+		{http.MethodGet, "/validate/schema1", h.validate},
+		{http.MethodDelete, "/validate/schema1", h.validate},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.method+" "+tc.url, func(t *testing.T) {
+			req := httptest.NewRequest(tc.method, tc.url, strings.NewReader("{}"))
+			w := httptest.NewRecorder()
+
+			tc.fun(w, req)
+
+			resp := w.Result()
+			defer resp.Body.Close()
+			expectResponse(t, http.StatusNotFound, "", "", resp)
+		})
+	}
+}
+
 func TestPostSchema_ValidSchemaID_Success(t *testing.T) {
 	testCases := []struct {
 		url      string
