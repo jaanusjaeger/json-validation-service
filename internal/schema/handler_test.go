@@ -5,6 +5,7 @@ import (
 	"io/ioutil"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -75,31 +76,89 @@ func TestPostSchema_InvalidJSON_Error(t *testing.T) {
 	expectResponse(t, http.StatusBadRequest, ActionUploadSchema, "schema1", resp)
 }
 
+func TestPostSchema_InvalidSchema_Error(t *testing.T) {
+	h := mkHandler()
+	req := httptest.NewRequest(http.MethodPost, "/schema/schema1", strings.NewReader(`{"type": "object-NOT"}`))
+	w := httptest.NewRecorder()
+
+	h.schema(w, req)
+
+	resp := w.Result()
+	defer resp.Body.Close()
+	expectResponse(t, http.StatusBadRequest, ActionUploadSchema, "schema1", resp)
+}
+
 func TestPostSchema_MultipleTimesSameID_Error(t *testing.T) {
 	h := mkHandler()
-	req1 := httptest.NewRequest(http.MethodPost, "/schema/schema1", strings.NewReader(schema1))
-	w1 := httptest.NewRecorder()
+	prepareTestSchema(t, h)
+	req := httptest.NewRequest(http.MethodPost, "/schema/schema1", strings.NewReader(schema1))
+	w := httptest.NewRecorder()
 
-	h.schema(w1, req1)
+	h.schema(w, req)
 
-	resp1 := w1.Result()
-	defer resp1.Body.Close()
-	expectResponse(t, http.StatusCreated, ActionUploadSchema, "schema1", resp1)
+	resp := w.Result()
+	defer resp.Body.Close()
+	expectResponse(t, http.StatusConflict, ActionUploadSchema, "schema1", resp)
+}
 
-	req2 := httptest.NewRequest(http.MethodPost, "/schema/schema1", strings.NewReader(schema1))
-	w2 := httptest.NewRecorder()
+func TestGetSchema_Success(t *testing.T) {
+	h := mkHandler()
+	prepareTestSchema(t, h)
+	req := httptest.NewRequest(http.MethodGet, "/schema/schema1", nil)
+	w := httptest.NewRecorder()
 
-	h.schema(w2, req2)
+	h.schema(w, req)
 
-	resp2 := w2.Result()
-	defer resp2.Body.Close()
-	expectResponse(t, http.StatusConflict, ActionUploadSchema, "schema1", resp2)
+	resp := w.Result()
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Errorf("unexpected status: expected %d, got %d", http.StatusOK, resp.StatusCode)
+	}
+	data, err := ioutil.ReadAll(resp.Body)
+	if err != nil {
+		t.Errorf("unexpected error: %s", err)
+	}
+	var result any
+	if err = json.Unmarshal(data, &result); err != nil {
+		t.Errorf("unexpected error: %s", err)
+	}
+	var expect any
+	if err = json.Unmarshal([]byte(schema1), &expect); err != nil {
+		t.Errorf("unexpected error: %s", err)
+	}
+	if !reflect.DeepEqual(result, expect) {
+		t.Errorf("unexpected schema: expected %d, got %d", expect, result)
+	}
+}
+
+func TestGetSchema_UnknownSchemaID_Error(t *testing.T) {
+	h := mkHandler()
+	prepareTestSchema(t, h)
+	req := httptest.NewRequest(http.MethodGet, "/schema/schema2", nil)
+	w := httptest.NewRecorder()
+
+	h.schema(w, req)
+
+	resp := w.Result()
+	defer resp.Body.Close()
+	expectResponse(t, http.StatusNotFound, ActionDownloadSchema, "schema2", resp)
 }
 
 func mkHandler() *handler {
 	storage, _ := storage.New(storage.Conf{})
 	service := NewService(storage)
 	return &handler{service}
+}
+
+func prepareTestSchema(t *testing.T, h *handler) {
+	req := httptest.NewRequest(http.MethodPost, "/schema/schema1", strings.NewReader(schema1))
+	w := httptest.NewRecorder()
+
+	h.schema(w, req)
+
+	resp := w.Result()
+	defer resp.Body.Close()
+	expectResponse(t, http.StatusCreated, ActionUploadSchema, "schema1", resp)
 }
 
 func expectResponse(t *testing.T, status int, action ActionType, id string, resp *http.Response) {
