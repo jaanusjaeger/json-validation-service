@@ -28,13 +28,14 @@ func main() {
 		log.Println("ERROR: creating schema service:", err)
 		os.Exit(1)
 	}
+	handlers := schema.Handlers(service)
 
 	signalc := make(chan os.Signal, 1)
 	defer close(signalc)
 	signal.Notify(signalc, syscall.SIGINT, syscall.SIGTERM)
 	defer signal.Stop(signalc)
 
-	srv := server.New(conf.Server, service)
+	srv := server.New(conf.Server, handlers)
 	srvc := make(chan error, 1)
 	go func() { srvc <- srv.ListenAndServe() }()
 
