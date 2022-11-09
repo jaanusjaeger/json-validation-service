@@ -9,6 +9,8 @@ import (
 	"net/http"
 	"regexp"
 	"strings"
+
+	"github.com/jaanusjaeger/json-validation-service/internal/storage"
 )
 
 var schemaIDMatcher, _ = regexp.Compile("^[\\w-]+$")
@@ -148,9 +150,9 @@ func getSchemaID(urlPath string) (string, error) {
 
 func errStatus(err error) int {
 	switch {
-	case errors.As(err, &ErrNotFound{}):
+	case errors.As(err, &storage.ErrNotFound{}):
 		return http.StatusNotFound
-	case errors.As(err, &ErrExists{}):
+	case errors.As(err, &storage.ErrExists{}):
 		return http.StatusConflict
 	case errors.As(err, &ErrInvalidFormat{}):
 		return http.StatusBadRequest

@@ -1,8 +1,10 @@
 {
+    "storage": {
+        "file": {
+            "dir": "data"
+        }
+    },
     "server": {
         "addr": ":8080"
-    },
-    "schema": {
-        "dir": "data"
     }
 }

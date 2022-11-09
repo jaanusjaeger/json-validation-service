@@ -11,6 +11,7 @@ import (
 	"github.com/jaanusjaeger/json-validation-service/internal/conf"
 	"github.com/jaanusjaeger/json-validation-service/internal/schema"
 	"github.com/jaanusjaeger/json-validation-service/internal/server"
+	"github.com/jaanusjaeger/json-validation-service/internal/storage"
 )
 
 func main() {
@@ -23,11 +24,12 @@ func main() {
 		os.Exit(1)
 	}
 
-	service, err := schema.NewService(conf.Schema)
+	storage, err := storage.New(conf.Storage)
 	if err != nil {
-		log.Println("ERROR: creating schema service:", err)
+		log.Println("ERROR: creating storage service:", err)
 		os.Exit(1)
 	}
+	service := schema.NewService(storage)
 	handlers := schema.Handlers(service)
 
 	signalc := make(chan os.Signal, 1)

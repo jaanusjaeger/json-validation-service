@@ -4,13 +4,13 @@ import (
 	"encoding/json"
 	"io/ioutil"
 
-	"github.com/jaanusjaeger/json-validation-service/internal/schema"
 	"github.com/jaanusjaeger/json-validation-service/internal/server"
+	"github.com/jaanusjaeger/json-validation-service/internal/storage"
 )
 
 type Conf struct {
-	Schema schema.Conf
-	Server server.Conf
+	Storage storage.Conf
+	Server  server.Conf
 }
 
 // LoadJSON loads the global configuration from a JSON file
