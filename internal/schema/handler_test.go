@@ -171,6 +171,32 @@ func TestGetSchema_UnknownSchemaID_Error(t *testing.T) {
 	expectResponse(t, http.StatusNotFound, ActionDownloadSchema, "schema2", resp)
 }
 
+func TestValidate_Success(t *testing.T) {
+	h := mkHandler()
+	prepareTestSchema(t, h)
+	req := httptest.NewRequest(http.MethodPost, "/validate/schema1", strings.NewReader(validJson1))
+	w := httptest.NewRecorder()
+
+	h.validate(w, req)
+
+	resp := w.Result()
+	defer resp.Body.Close()
+	expectResponse(t, http.StatusOK, ActionValidate, "schema1", resp)
+}
+
+func TestValidate_InvalidJSON_Success(t *testing.T) {
+	h := mkHandler()
+	prepareTestSchema(t, h)
+	req := httptest.NewRequest(http.MethodPost, "/validate/schema1", strings.NewReader(invalidJson1))
+	w := httptest.NewRecorder()
+
+	h.validate(w, req)
+
+	resp := w.Result()
+	defer resp.Body.Close()
+	expectResponse(t, http.StatusBadRequest, ActionValidate, "schema1", resp)
+}
+
 func mkHandler() *handler {
 	storage, _ := storage.New(storage.Conf{})
 	service := NewService(storage)
